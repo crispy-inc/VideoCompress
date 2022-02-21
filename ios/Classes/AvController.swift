@@ -22,6 +22,10 @@ class AvController: NSObject {
         group.wait()
         return track
     }
+
+    public func hasAudio(_ asset: AVURLAsset) -> Bool {
+        return asset.tracks.filter({$0.mediaType == AVMediaType.audio}).count != 0
+    }
     
     public func getVideoOrientation(_ path:String)-> Int? {
         let url = Utility.getPathUrl(path)

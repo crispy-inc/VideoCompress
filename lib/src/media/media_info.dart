@@ -6,6 +6,7 @@ class MediaInfo {
   String? author;
   int? width;
   int? height;
+  bool? hasAudio;
 
   /// [Android] API level 17
   int? orientation;
@@ -23,6 +24,7 @@ class MediaInfo {
     this.author,
     this.width,
     this.height,
+    this.hasAudio,
     this.orientation,
     this.filesize,
     this.duration,
@@ -31,11 +33,13 @@ class MediaInfo {
   });
 
   MediaInfo.fromJson(Map<String, dynamic> json) {
+    print(json);
     path = json['path'];
     title = json['title'];
     author = json['author'];
     width = json['width'];
     height = json['height'];
+    hasAudio = json['has_audio'];
     orientation = json['orientation'];
     filesize = json['filesize'];
     duration = double.tryParse('${json['duration']}');
@@ -50,6 +54,7 @@ class MediaInfo {
     data['author'] = this.author;
     data['width'] = this.width;
     data['height'] = this.height;
+    data['has_audio'] = this.hasAudio;
     if (this.orientation != null) {
       data['orientation'] = this.orientation;
     }

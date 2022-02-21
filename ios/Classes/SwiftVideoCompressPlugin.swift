@@ -112,7 +112,9 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         
         let width = abs(size.width)
         let height = abs(size.height)
-        
+
+        let hasAudio = avController.hasAudio(asset)
+
         let dictionary = [
             "path":Utility.excludeFileProtocol(path),
             "title":title,
@@ -121,7 +123,8 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
             "height":height,
             "duration":duration,
             "filesize":filesize,
-            "orientation":orientation
+            "orientation":orientation,
+            "has_audio":hasAudio
             ] as [String : Any?]
         return dictionary
     }
@@ -206,10 +209,9 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         exporter.outputURL = compressionUrl
         exporter.outputFileType = AVFileType.mp4
         exporter.shouldOptimizeForNetworkUse = true
-        
-        if frameRate != nil {
+        if let frameRate = frameRate {
             let videoComposition = AVMutableVideoComposition(propertiesOf: sourceVideoAsset)
-            videoComposition.frameDuration = CMTimeMake(value: 1, timescale: Int32(frameRate!))
+            videoComposition.frameDuration = CMTimeMake(value: 1, timescale: Int32(frameRate))
             exporter.videoComposition = videoComposition
         }
         
