@@ -1,10 +1,10 @@
 import Flutter
 import AVFoundation
+import ffmpegkit
 
 public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
     private let channelName = "video_compress"
-    private var exporter: AVAssetExportSession? = nil
-    private var stopCommand = false
+    private var session: FFmpegSession?
     private let channel: FlutterMethodChannel
     private let avController = AvController()
     
@@ -42,8 +42,10 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
             let duration = args!["duration"] as? Double
             let includeAudio = args!["includeAudio"] as? Bool
             let frameRate = args!["frameRate"] as? Int
+            let bitrate = args!["bitrate"] as? Int
+            let orientation = args!["orientation"] as? Int
             compressVideo(path, quality, deleteOrigin, startTime, duration, includeAudio,
-                          frameRate, result)
+                          frameRate, bitrate, orientation, result)
         case "cancelCompression":
             cancelCompression(result)
         case "deleteAllCache":
@@ -134,36 +136,7 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         let string = Utility.keyValueToJson(json)
         result(string)
     }
-    
-    
-    @objc private func updateProgress(timer:Timer) {
-        let asset = timer.userInfo as! AVAssetExportSession
-        if(!stopCommand) {
-            channel.invokeMethod("updateProgress", arguments: "\(String(describing: asset.progress * 100))")
-        }
-    }
-    
-    private func getExportPreset(_ quality: NSNumber)->String {
-        switch(quality) {
-        case 1:
-            return AVAssetExportPresetLowQuality    
-        case 2:
-            return AVAssetExportPresetMediumQuality
-        case 3:
-            return AVAssetExportPresetHighestQuality
-        case 4:
-            return AVAssetExportPreset640x480
-        case 5:
-            return AVAssetExportPreset960x540
-        case 6:
-            return AVAssetExportPreset1280x720
-        case 7:
-            return AVAssetExportPreset1920x1080
-        default:
-            return AVAssetExportPresetMediumQuality
-        }
-    }
-    
+
     private func getComposition(_ isIncludeAudio: Bool,_ timeRange: CMTimeRange, _ sourceVideoTrack: AVAssetTrack)->AVAsset {
         let composition = AVMutableComposition()
         if !isIncludeAudio {
@@ -174,89 +147,244 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
             return sourceVideoTrack.asset!
         }
         
-        return composition    
+        return composition
     }
-    
-    private func compressVideo(_ path: String,_ quality: NSNumber,_ deleteOrigin: Bool,_ startTime: Double?,
-                               _ duration: Double?,_ includeAudio: Bool?,_ frameRate: Int?,
-                               _ result: @escaping FlutterResult) {
+
+    private func compressVideo(_ path: String,
+                               _ quality: NSNumber,
+                               _ deleteOrigin: Bool,
+                               _ startTime: Double?,
+                               _ duration: Double?,
+                               _ includeAudio: Bool?,
+                               _ frameRate: Int?,
+                               _ bitrate: Int?,
+                               _ orientation: Int?,
+                               _ result: @escaping FlutterResult
+    ) {
+        if session != nil {
+            // TODO: エラー
+            return
+        }
         let sourceVideoUrl = Utility.getPathUrl(path)
-        let sourceVideoType = "mp4"
-        
         let sourceVideoAsset = avController.getVideoAsset(sourceVideoUrl)
-        let sourceVideoTrack = avController.getTrack(sourceVideoAsset)
-        
+        let sourceVideoDuration = sourceVideoAsset.duration.seconds * 1000
         let compressionUrl =
-            Utility.getPathUrl("\(Utility.basePath())/\(Utility.getFileName(path)).\(sourceVideoType)")
-        
-        let timescale = sourceVideoAsset.duration.timescale
-        let minStartTime = Double(startTime ?? 0)
-        
-        let videoDuration = sourceVideoAsset.duration.seconds
-        let minDuration = Double(duration ?? videoDuration)
-        let maxDurationTime = minStartTime + minDuration < videoDuration ? minDuration : videoDuration
-        
-        let cmStartTime = CMTimeMakeWithSeconds(minStartTime, preferredTimescale: timescale)
-        let cmDurationTime = CMTimeMakeWithSeconds(maxDurationTime, preferredTimescale: timescale)
-        let timeRange: CMTimeRange = CMTimeRangeMake(start: cmStartTime, duration: cmDurationTime)
-        
-        let isIncludeAudio = includeAudio != nil ? includeAudio! : true
-        
-        let session = getComposition(isIncludeAudio, timeRange, sourceVideoTrack!)
-        
-        let exporter = AVAssetExportSession(asset: session, presetName: getExportPreset(quality))!
-        
-        exporter.outputURL = compressionUrl
-        exporter.outputFileType = AVFileType.mp4
-        exporter.shouldOptimizeForNetworkUse = true
+            Utility.getPathUrl("\(Utility.basePath())/\(Utility.getFileName(path)).mp4")
+        print("startCompressVideo3: \(compressionUrl.path)")
+        let info = getMediaInfoJson(path)
+        print(info)
+        let width = (info["width"] as? CGFloat) ?? 0
+        let height = (info["height"] as? CGFloat) ?? 0
+
+        let originalSize = CGSize(width: width, height: height)
+
+        var commands = [String]()
+        if let startTime = startTime {
+            commands.append(contentsOf: [
+                "-ss",
+                "\(startTime / 1000)",
+            ])
+        }
+        commands.append(contentsOf: [
+            "-i",
+            path,
+        ])
+        let totalDuration: Double
+        if let duration = duration {
+            commands.append(contentsOf: [
+                "-t",
+                "\(duration / 1000)",
+            ])
+            totalDuration = duration
+        } else {
+            totalDuration = sourceVideoDuration
+        }
+        if includeAudio == false {
+            commands.append(contentsOf: [
+                "-an"
+            ])
+        }
+        var filters = [String]()
         if let frameRate = frameRate {
-            let videoComposition = AVMutableVideoComposition(propertiesOf: sourceVideoAsset)
-            videoComposition.frameDuration = CMTimeMake(value: 1, timescale: Int32(frameRate))
-            exporter.videoComposition = videoComposition
+            filters.append("framerate=\(frameRate)")
         }
-        
-        if !isIncludeAudio {
-            exporter.timeRange = timeRange
+        if let roteteFilters = orientation?.rotateFilters, !roteteFilters.isEmpty {
+            filters.append(contentsOf: roteteFilters)
         }
-        
-        Utility.deleteFile(compressionUrl.absoluteString)
-        
-        let timer = Timer.scheduledTimer(timeInterval: 0.1, target: self, selector: #selector(self.updateProgress),
-                                         userInfo: exporter, repeats: true)
-        
-        exporter.exportAsynchronously(completionHandler: {
-            timer.invalidate()
-            if(self.stopCommand) {
-                self.stopCommand = false
-                var json = self.getMediaInfoJson(path)
-                json["isCancel"] = true
-                let jsonString = Utility.keyValueToJson(json)
-                return result(jsonString)
-            }
-            if deleteOrigin {
-                let fileManager = FileManager.default
-                do {
-                    if fileManager.fileExists(atPath: path) {
-                        try fileManager.removeItem(atPath: path)
-                    }
-                    self.exporter = nil
-                    self.stopCommand = false
+        commands.append(contentsOf: [
+            "-s",
+            originalSize.getOutputSizeString(orientation ?? 0, quality: quality),
+        ])
+        if !filters.isEmpty {
+            commands.append(contentsOf: [
+                "-vf",
+                filters.joined(separator: ",")
+            ])
+        }
+        if let bitrate = bitrate {
+            commands.append(contentsOf: [
+                "-b:v",
+                "\(bitrate)"
+            ])
+        }
+        commands.append(contentsOf: [
+            "-c:v",
+            "h264_videotoolbox",
+            compressionUrl.path,
+        ])
+
+        Utility.deleteFile(compressionUrl.path, clear: true)
+        session = FFmpegKit.execute(
+            withArgumentsAsync: commands,
+            withCompleteCallback: { [weak self] session in
+                guard let self = self else {
+                    return
                 }
-                catch let error as NSError {
-                    print(error)
+                self.session = nil
+                guard let session = session else {
+                    return
+                }
+                if ReturnCode.isSuccess(session.getReturnCode()) {
+                    var json = self.getMediaInfoJson(Utility.excludeEncoding(compressionUrl.path))
+                    json["isCancel"] = false
+                    let jsonString = Utility.keyValueToJson(json)
+                    result(jsonString)
+                } else if ReturnCode.isCancel(session.getReturnCode()) {
+                    var json = self.getMediaInfoJson(path)
+                    json["isCancel"] = true
+                    let jsonString = Utility.keyValueToJson(json)
+                    result(jsonString)
+                }
+            },
+            withLogCallback: { log in
+//                print(log?.getMessage())
+            },
+            withStatisticsCallback: { [weak self] statistics in
+                guard let self = self, let statistics = statistics else {
+                    return
+                }
+                if(self.session != nil) {
+                    let time = Double(statistics.getTime())
+//                    print("time: \(time), totalDuration: \(totalDuration)(videoDuration: \(sourceVideoDuration))")
+                    let progress = time / totalDuration * 100
+                    self.channel.invokeMethod("updateProgress", arguments: "\(String(describing: progress > 100 ? 100 : progress))")
                 }
             }
-            var json = self.getMediaInfoJson(Utility.excludeEncoding(compressionUrl.path))
-            json["isCancel"] = false
-            let jsonString = Utility.keyValueToJson(json)
-            result(jsonString)
-        })
+        )
     }
     
     private func cancelCompression(_ result: FlutterResult) {
-        exporter?.cancelExport()
-        stopCommand = true
+        session = nil
+        FFmpegKit.cancel()
         result("")
     }
     
+}
+
+
+extension CGSize {
+    func getOutputSize(_ orientation: Int, quality: NSNumber) -> CGSize {
+        let size = getOutputSizeByQuality(quality)
+        return size.fromOrientation(orientation)
+    }
+
+    func getOutputSizeByQuality(_ quality: NSNumber) -> CGSize {
+        switch (quality) {
+        case 1:
+            return atMostResize(360)
+        case 2:
+            return atMostResize(640)
+        case 3:
+            return atMostResize(1280, 720)
+        case 4:
+            return atMostResize(640, 480)
+        case 5:
+            return atMostResize(940, 560)
+        case 6:
+            return atMostResize(1280, 720)
+        case 7:
+            return atMostResize(1920, 1080)
+        default:
+            return atMostResize(720)
+        }
+    }
+
+    func getOutputSizeString(_ orientation: Int, quality: NSNumber) -> String {
+        let size = getOutputSize(orientation, quality: quality)
+        let width = Int(size.width.toOutputSize())
+        let height = Int(size.height.toOutputSize())
+        return "\(width)*\(height)"
+    }
+
+    func fromOrientation(_ orientation: Int) -> CGSize {
+        if orientation == 90 || orientation == 270 {
+            return CGSize(width: height, height: width)
+        }
+        return self
+    }
+
+    func atMostResize(_ atMiner: CGFloat) -> CGSize {
+        return atMostResize(CGFloat.greatestFiniteMagnitude, atMiner)
+    }
+
+    func atMostResize(_ atMajor: CGFloat, _ atMiner: CGFloat) -> CGSize {
+        let major = majorSize
+        let miner = minerSize
+        if miner < atMiner, major < atMajor {
+            return self
+        }
+        let minorScale = minerSize / CGFloat(atMiner)
+        let majorScale = majorSize / CGFloat(atMajor)
+
+        let inputRatio = minerSize / majorSize
+        if majorScale >= minorScale {
+            return replace(CGSize(width: atMajor, height: atMajor * inputRatio))
+        }
+        return replace(CGSize(width: atMiner, height: atMiner / inputRatio))
+    }
+
+    func replace(_ size: CGSize) -> CGSize {
+        if (width > height) {
+            return CGSize(width: size.majorSize, height: size.minerSize)
+        }
+        return CGSize(width: size.minerSize, height: size.majorSize)
+    }
+
+    var majorSize: CGFloat {
+        return max(height, width)
+    }
+
+    var minerSize: CGFloat {
+        return min(height, width)
+    }
+}
+
+extension Int {
+    var rotateFilters: [String] {
+        if self == 90 {
+            return [
+                "transpose=1"
+            ]
+        } else if self == 270 {
+            return [
+                "transpose=2"
+            ]
+        } else if self == 180 {
+            return [
+                "hflip",
+                "vflip"
+            ]
+        }
+        return []
+    }
+}
+
+extension CGFloat {
+    func toOutputSize() -> Int {
+        let num = Int(ceil(self))
+        if num % 2 == 0 {
+            return num
+        }
+        return num - 1
+    }
 }

@@ -16,6 +16,7 @@ A new flutter plugin project.
   s.source_files = 'Classes/**/*'
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'Flutter'
-  s.ios.deployment_target = '8.0'
+  s.dependency 'ffmpeg-kit-ios-min', "4.5.1"
+  s.ios.deployment_target = '12.1'
 end
 

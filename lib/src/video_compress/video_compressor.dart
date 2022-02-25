@@ -126,6 +126,8 @@ extension Compress on IVideoCompress {
     int? duration,
     bool? includeAudio,
     int frameRate = 30,
+    int? bitrate,
+    int? orientation,
   }) async {
     if (isCompressing) {
       throw StateError('''VideoCompress Error: 
@@ -147,6 +149,8 @@ extension Compress on IVideoCompress {
       'duration': duration,
       'includeAudio': includeAudio,
       'frameRate': frameRate,
+      "bitrate": bitrate,
+      'orientation': orientation,
     });
 
     // ignore: invalid_use_of_protected_member
