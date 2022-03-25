@@ -109,6 +109,7 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         
         let duration = asset.duration.seconds * 1000
         let filesize = track.totalSampleDataLength
+        let bitrate = asset.tracks.map { $0.estimatedDataRate }.reduce(0) { $0 + $1 }
         
         let size = track.naturalSize.applying(track.preferredTransform)
         
@@ -126,7 +127,8 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
             "duration":duration,
             "filesize":filesize,
             "orientation":orientation,
-            "has_audio":hasAudio
+            "has_audio":hasAudio,
+            "bitrate": Int(bitrate)
             ] as [String : Any?]
         return dictionary
     }
@@ -256,8 +258,7 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
                     result(jsonString)
                 }
             },
-            withLogCallback: { log in
-//                print(log?.getMessage())
+            withLogCallback: { _ in
             },
             withStatisticsCallback: { [weak self] statistics in
                 guard let self = self, let statistics = statistics else {
@@ -265,7 +266,6 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
                 }
                 if(self.session != nil) {
                     let time = Double(statistics.getTime())
-//                    print("time: \(time), totalDuration: \(totalDuration)(videoDuration: \(sourceVideoDuration))")
                     let progress = time / totalDuration * 100
                     self.channel.invokeMethod("updateProgress", arguments: "\(String(describing: progress > 100 ? 100 : progress))")
                 }

@@ -42,10 +42,12 @@ class Utility(private val channelName: String) {
         val author = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_AUTHOR) ?: ""
         val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
         val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+        var bitrateStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
         val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) != null
         val duration = java.lang.Long.parseLong(durationStr)
         var width = java.lang.Long.parseLong(widthStr)
         var height = java.lang.Long.parseLong(heightStr)
+        var bitrate = java.lang.Long.parseLong(bitrateStr)
         val filesize = file.length()
         val orientation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
@@ -71,6 +73,7 @@ class Utility(private val channelName: String) {
         json.put("duration", duration)
         json.put("filesize", filesize)
         json.put("has_audio", hasAudio)
+        json.put("bitrate", bitrate)
         if (ori != null) {
             json.put("orientation", ori)
         }

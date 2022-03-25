@@ -17,6 +17,7 @@ class MediaInfo {
   double? duration;
   bool? isCancel;
   File? file;
+  int? bitrate;
 
   MediaInfo({
     required this.path,
@@ -30,6 +31,7 @@ class MediaInfo {
     this.duration,
     this.isCancel,
     this.file,
+    this.bitrate,
   });
 
   MediaInfo.fromJson(Map<String, dynamic> json) {
@@ -45,6 +47,7 @@ class MediaInfo {
     duration = double.tryParse('${json['duration']}');
     isCancel = json['isCancel'];
     file = File(path!);
+    bitrate = json['bitrate'];
   }
 
   Map<String, dynamic> toJson() {
@@ -64,6 +67,7 @@ class MediaInfo {
       data['isCancel'] = this.isCancel;
     }
     data['file'] = File(path!).toString();
+    data['bitrate'] = this.bitrate;
     return data;
   }
 }
