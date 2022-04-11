@@ -172,9 +172,7 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         let sourceVideoDuration = sourceVideoAsset.duration.seconds * 1000
         let compressionUrl =
             Utility.getPathUrl("\(Utility.basePath())/\(Utility.getFileName(path)).mp4")
-        print("startCompressVideo3: \(compressionUrl.path)")
         let info = getMediaInfoJson(path)
-        print(info)
         let width = (info["width"] as? CGFloat) ?? 0
         let height = (info["height"] as? CGFloat) ?? 0
 

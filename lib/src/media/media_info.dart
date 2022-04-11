@@ -35,7 +35,6 @@ class MediaInfo {
   });
 
   MediaInfo.fromJson(Map<String, dynamic> json) {
-    print(json);
     path = json['path'];
     title = json['title'];
     author = json['author'];
