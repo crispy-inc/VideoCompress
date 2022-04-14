@@ -23,6 +23,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Future
+import com.example.video_compress.sink.DefaultDataSink;
 
 /**
  * VideoCompressPlugin
@@ -154,7 +155,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 }
 
 
-                transcodeFuture = Transcoder.into(destPath!!)
+                transcodeFuture = Transcoder.into(DefaultDataSink(destPath!!))
                         .addDataSource(dataSource)
                         .setAudioTrackStrategy(audioTrackStrategy)
                         .setVideoTrackStrategy(videoTrackStrategy.build())
