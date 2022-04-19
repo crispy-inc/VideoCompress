@@ -1,20 +1,24 @@
 package com.example.video_compress
 
 import android.content.Context
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.net.Uri
+import android.os.Build
 import android.util.Log
-import com.otaliastudios.transcoder.Transcoder
-import com.otaliastudios.transcoder.TranscoderListener
-import com.otaliastudios.transcoder.source.TrimDataSource
-import com.otaliastudios.transcoder.source.UriDataSource
-import com.otaliastudios.transcoder.strategy.DefaultAudioStrategy
-import com.otaliastudios.transcoder.strategy.DefaultVideoStrategy
-import com.otaliastudios.transcoder.strategy.RemoveTrackStrategy
-import com.otaliastudios.transcoder.strategy.TrackStrategy
-import com.otaliastudios.transcoder.common.*
+import android.util.Size
+import com.example.video_compress.resize.Resizer
+import com.linkedin.android.litr.MediaTransformer
+import com.linkedin.android.litr.TrackTransform
+import com.linkedin.android.litr.TransformationListener
+import com.linkedin.android.litr.TransformationOptions
+import com.linkedin.android.litr.analytics.TrackTransformationInfo
+import com.linkedin.android.litr.codec.MediaCodecDecoder
+import com.linkedin.android.litr.codec.MediaCodecEncoder
+import com.linkedin.android.litr.io.*
+import com.linkedin.android.litr.render.GlVideoRenderer
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.BinaryMessenger
-import com.otaliastudios.transcoder.internal.utils.Logger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
@@ -23,24 +27,20 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Future
-import com.example.video_compress.sink.DefaultDataSink;
 
 /**
  * VideoCompressPlugin
  */
 class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
 
-
     private var _context: Context? = null
     private var _channel: MethodChannel? = null
-    private val TAG = "VideoCompressPlugin"
-    private val LOG = Logger(TAG)
     private var transcodeFuture:Future<Void>? = null
     var channelName = "video_compress"
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        val context = _context;
-        val channel = _channel;
+        val context = _context
+        val channel = _channel
 
         if (context == null || channel == null) {
             Log.w(TAG, "Calling VideoCompress plugin before initialization")
@@ -66,16 +66,16 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 result.success(Utility(channelName).getMediaInfoJson(context, path!!).toString())
             }
             "deleteAllCache" -> {
-                result.success(Utility(channelName).deleteAllCache(context, result));
+                result.success(Utility(channelName).deleteAllCache(context, result))
             }
             "setLogLevel" -> {
-                val logLevel = call.argument<Int>("logLevel")!!
-                Logger.setLogLevel(logLevel)
-                result.success(true);
+//                val logLevel = call.argument<Int>("logLevel")!!
+//                Logger.setLogLevel(logLevel)
+                result.success(true)
             }
             "cancelCompression" -> {
                 transcodeFuture?.cancel(true)
-                result.success(false);
+                result.success(false)
             }
             "compressVideo" -> {
                 val path = call.argument<String>("path")!!
@@ -84,104 +84,159 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 val startTime = call.argument<Int>("startTime")
                 val duration = call.argument<Int>("duration")
                 val includeAudio = call.argument<Boolean>("includeAudio") ?: true
-                val frameRate = if (call.argument<Int>("frameRate")==null) 30 else call.argument<Int>("frameRate")
+                val frameRate = call.argument<Int>("frameRate") ?: 30
                 val bitrate = call.argument<Int>("bitrate")
-                var orientation = call.argument<Int>("orientation")
+                val orientation = call.argument<Int>("orientation") ?: 0
 
                 val tempDir: String = context.getExternalFilesDir("video_compress")!!.absolutePath
-                val out = SimpleDateFormat("yyyy-MM-dd hh-mm-ss").format(Date())
+                val out = SimpleDateFormat("yyyy-MM-dd hh-mm-ss", Locale.JAPANESE).format(Date())
+
                 val destPath: String = tempDir + File.separator + "VID_" + out + ".mp4"
 
-                var videoTrackStrategy: DefaultVideoStrategy.Builder = DefaultVideoStrategy.atMost(340);
-                val audioTrackStrategy: TrackStrategy
-
-                when (quality) {
-
-                    0 -> {
-                      videoTrackStrategy = DefaultVideoStrategy.atMost(720)
+                val mediaRange = if (startTime != null || duration != null) {
+                    val start = (startTime ?: 0).toLong() * 1000
+                    val end = if (duration != null) {
+                        start + duration.toLong() * 1000
+                    } else {
+                        Long.MAX_VALUE
                     }
-
-                    1 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(360)
-                    }
-                    2 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(640)
-                    }
-                    3 -> {
-
-                        assert(value = frameRate != null)
-                        videoTrackStrategy = DefaultVideoStrategy.Builder()
-                                .keyFrameInterval(3f)
-                                .bitRate(1280 * 720 * 4.toLong())
-                                .frameRate(frameRate!!) // will be capped to the input frameRate
-                    }
-                    4 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(480, 640)
-                    }
-                    5 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(540, 960)
-                    }
-                    6 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(720, 1280)
-                    }
-                    7 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(1080, 1920)
-                    }                    
-                }
-                if (bitrate != null) {
-                    videoTrackStrategy = videoTrackStrategy.bitRate(bitrate.toLong())
-                }
-                if (frameRate != null) {
-                    videoTrackStrategy = videoTrackStrategy.frameRate(frameRate)
-                }
-
-                audioTrackStrategy = if (includeAudio) {
-                    val sampleRate = DefaultAudioStrategy.SAMPLE_RATE_AS_INPUT
-                    val channels = DefaultAudioStrategy.CHANNELS_AS_INPUT
-
-                    DefaultAudioStrategy.builder()
-                        .channels(channels)
-                        .sampleRate(sampleRate)
-                        .build()
+                    MediaRange(start, end)
                 } else {
-                    RemoveTrackStrategy()
+                    MediaRange(0, Long.MAX_VALUE)
                 }
 
-                val dataSource = if (startTime != null || duration != null){
-                    val source = UriDataSource(context, Uri.parse(path))
-                    TrimDataSource(source, (1000 * (startTime ?: 0)).toLong(), (1000 * (duration ?: 0)).toLong())
-                }else{
-                    UriDataSource(context, Uri.parse(path))
+                val mediaSource: MediaSource = MediaExtractorMediaSource(
+                    context.applicationContext,
+                    Uri.parse(path),
+                    mediaRange
+                )
+                val resizer = getTargetSizer(mediaSource = mediaSource, quality = quality)
+                if (resizer == null) {
+                    result.error(TAG, "target size is null", "")
+                    return
                 }
 
+                val resizedVideoSize = mediaSource
+                    .getVideoSize()
+                    ?.resize(resizer = resizer)
+                    ?.rotate(orientation)
+                if (resizedVideoSize == null) {
+                    result.error(TAG, "Video size is null.", "")
+                    return
+                }
 
-                transcodeFuture = Transcoder.into(DefaultDataSink(destPath!!))
-                        .addDataSource(dataSource)
-                        .setAudioTrackStrategy(audioTrackStrategy)
-                        .setVideoTrackStrategy(videoTrackStrategy.build())
-                        .setVideoRotation(orientation ?: 0)
-                        .setListener(object : TranscoderListener {
-                            override fun onTranscodeProgress(progress: Double) {
-                                channel.invokeMethod("updateProgress", progress * 100.00)
-                            }
-                            override fun onTranscodeCompleted(successCode: Int) {
-                                channel.invokeMethod("updateProgress", 100.00)
-                                val json = Utility(channelName).getMediaInfoJson(context, destPath)
-                                json.put("isCancel", false)
-                                result.success(json.toString())
-                                if (deleteOrigin) {
-                                    File(path).delete()
-                                }
-                            }
+                val videoMediaFormat = MediaFormat.createVideoFormat(
+                    MediaFormat.MIMETYPE_VIDEO_AVC,
+                    resizedVideoSize.width,
+                    resizedVideoSize.height
+                )
 
-                            override fun onTranscodeCanceled() {
-                                result.success(null)
-                            }
+                if (orientation != 0) {
+                    val videoRotation = (360 + orientation - mediaSource.orientationHint) % 360
+                    val rotation = when(videoRotation) {
+                        90 -> {
+                            270
+                        }
+                        270 -> {
+                            90
+                        }
+                        else -> {
+                            videoRotation
+                        }
+                    }
+                    videoMediaFormat.setInteger(KEY_ROTATION, rotation)
+                }
 
-                            override fun onTranscodeFailed(exception: Throwable) {
-                                result.success(null)
+                val audioMediaFormat = mediaSource.getAudioFormat(96 * 1024)
+
+                if (bitrate != null) {
+                    videoMediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                }
+
+                videoMediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
+                videoMediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+
+                val transformationOptionsBuilder = TransformationOptions.Builder()
+                val requestId = UUID.randomUUID().toString()
+
+                val trackCount = if (audioMediaFormat != null && includeAudio) 2 else 1
+
+                val mediaTarget = MediaMuxerMediaTarget(
+                    context.applicationContext,
+                    Uri.fromFile(File(destPath)),
+                    trackCount,
+                    mediaSource.orientationHint,
+                    MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
+                )
+
+                val options = transformationOptionsBuilder.build()
+                val mediaTransformer = MediaTransformer(context.applicationContext)
+                val videoIndex = mediaSource.getVideoTrackIndex()
+                val trackTransformBuilder = TrackTransform
+                    .Builder(mediaSource, videoIndex, mediaTarget)
+                    .setTargetTrack(0)
+                trackTransformBuilder.setDecoder(MediaCodecDecoder())
+                    .setRenderer(GlVideoRenderer(options.videoFilters))
+                    .setEncoder(MediaCodecEncoder())
+                    .setTargetFormat(videoMediaFormat)
+                val trackTransforms = ArrayList<TrackTransform>()
+                trackTransforms.add(trackTransformBuilder.build())
+                val audioTrackIndex = mediaSource.getAudioTrackIndex()
+                if (audioMediaFormat != null && includeAudio) {
+                    val audioTrackTransformBuilder = TrackTransform
+                        .Builder(mediaSource, audioTrackIndex, mediaTarget)
+                        .setTargetTrack(1)
+                        .setDecoder(MediaCodecDecoder())
+                        .setEncoder(MediaCodecEncoder())
+                        .setTargetFormat(audioMediaFormat)
+                    trackTransforms.add(audioTrackTransformBuilder.build())
+                }
+
+                mediaTransformer.transform(
+                    requestId,
+                    trackTransforms,
+                    object : TransformationListener {
+                        override fun onStarted(id: String) {
+                        }
+
+                        override fun onProgress(id: String, progress: Float) {
+                            channel.invokeMethod("updateProgress", progress.toDouble() * 100.00)
+                        }
+
+                        override fun onCancelled(
+                            id: String,
+                            trackTransformationInfos: MutableList<TrackTransformationInfo>?
+                        ) {
+                            result.success(null)
+                        }
+
+                        override fun onCompleted(
+                            id: String,
+                            trackTransformationInfos: MutableList<TrackTransformationInfo>?
+                        ) {
+                            channel.invokeMethod("updateProgress", 100.00)
+                            val json = Utility(channelName).getMediaInfoJson(context, destPath)
+                            json.put("isCancel", false)
+                            result.success(json.toString())
+                            if (deleteOrigin) {
+                                File(path).delete()
                             }
-                        }).transcode()
+                        }
+
+                        override fun onError(
+                            id: String,
+                            cause: Throwable?,
+                            trackTransformationInfos: MutableList<TrackTransformationInfo>?
+                        ) {
+                            result.error(
+                                "video_compress_failed",
+                                cause?.message ?: "",
+                                cause?.localizedMessage ?: ""
+                            )
+                        }
+                    },
+                    options.granularity,
+                )
             }
             else -> {
                 result.notImplemented()
@@ -206,8 +261,52 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
         _channel = channel
     }
 
+    private fun getTargetSizer(mediaSource: MediaSource, quality: Int): Resizer? {
+        val index = mediaSource.getVideoTrackIndex()
+        if (index < 0) {
+            return null
+        }
+        return getResizer(quality)
+    }
+
+    private fun getResizer(quality: Int): Resizer? {
+        when (quality) {
+            0 -> {
+                return Resizer(720)
+            }
+            1 -> {
+                return Resizer(360)
+            }
+            2 -> {
+                return Resizer(640)
+            }
+            3 -> {
+                return Resizer(720, 1280)
+            }
+            4 -> {
+                return Resizer(480, 640)
+            }
+            5 -> {
+                return Resizer(540, 960)
+            }
+            6 -> {
+                return Resizer(720, 1280)
+            }
+            7 -> {
+                return Resizer( 1080, 1920)
+            }
+        }
+        return null
+    }
+
     companion object {
         private const val TAG = "video_compress"
+
+        private val KEY_ROTATION = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            MediaFormat.KEY_ROTATION
+        } else {
+            "rotation-degrees"
+        }
 
         @JvmStatic
         fun registerWith(registrar: Registrar) {
@@ -216,4 +315,80 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
         }
     }
 
+}
+
+private fun Size.rotate(orientation: Int): Size {
+    if (orientation == 90 || orientation == 270) {
+        return Size(height, width)
+    }
+    return this
+}
+
+private fun Size.resize(resizer: Resizer): Size {
+    return resizer.getOutputSize(this)
+}
+
+private fun MediaSource.getVideoTrackIndex(): Int {
+    return getTrackFirstIndex(type = "video")
+}
+
+private fun MediaSource.getAudioTrackIndex(): Int {
+    return getTrackFirstIndex(type = "audio")
+}
+
+private fun MediaSource.getTrackFirstIndex(type: String): Int {
+    val count = trackCount
+    for (i in 0..count) {
+        val trackFormat = getTrackFormat(i)
+        val mime = trackFormat.getString(MediaFormat.KEY_MIME) ?: continue
+        if (mime.startsWith(type)) {
+            return i
+        }
+    }
+    return -1
+}
+
+private fun MediaSource.getAudioFormat(maxBitrate: Int): MediaFormat? {
+    val index = getAudioTrackIndex()
+    if (index < 0) {
+        return null
+    }
+    val format = getTrackFormat(index)
+    val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+    val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+    val mediaFormat = MediaFormat.createAudioFormat(
+        MediaFormat.MIMETYPE_AUDIO_AAC,
+        sampleRate,
+        channelCount
+    )
+
+    val bitrate = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) {
+        format.getInteger(MediaFormat.KEY_BIT_RATE)
+    } else {
+        Int.MAX_VALUE
+    }
+    if (bitrate > maxBitrate) {
+        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, maxBitrate)
+    } else {
+        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+    }
+    return mediaFormat
+
+}
+
+private fun MediaSource.getVideoSize(): Size? {
+    val index = getVideoTrackIndex()
+    if (index < 0) {
+        return null
+    }
+    val trackFormat = getTrackFormat(index)
+    if (
+        !trackFormat.containsKey(MediaFormat.KEY_WIDTH) ||
+        !trackFormat.containsKey(MediaFormat.KEY_HEIGHT)
+    ) {
+        return null
+    }
+    val width = trackFormat.getInteger(MediaFormat.KEY_WIDTH)
+    val height = trackFormat.getInteger(MediaFormat.KEY_HEIGHT)
+    return Size(width, height)
 }
