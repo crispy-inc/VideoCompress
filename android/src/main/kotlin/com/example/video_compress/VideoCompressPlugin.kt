@@ -35,7 +35,6 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
 
     private var _context: Context? = null
     private var _channel: MethodChannel? = null
-    private var transcodeFuture:Future<Void>? = null
     var channelName = "video_compress"
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -74,7 +73,6 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 result.success(true)
             }
             "cancelCompression" -> {
-                transcodeFuture?.cancel(true)
                 result.success(false)
             }
             "compressVideo" -> {
