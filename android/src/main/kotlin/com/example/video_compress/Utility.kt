@@ -41,18 +41,14 @@ class Utility(private val channelName: String) {
         val author = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_AUTHOR) ?: ""
         val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
         val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-        var bitrateStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+        val bitrateStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
         val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) != null
-        val duration = java.lang.Long.parseLong(durationStr)
-        var width = java.lang.Long.parseLong(widthStr)
-        var height = java.lang.Long.parseLong(heightStr)
-        var bitrate = java.lang.Long.parseLong(bitrateStr)
+        val duration = durationStr?.toLongOrNull()
+        var width = widthStr?.toIntOrNull()
+        var height = heightStr?.toIntOrNull()
+        val bitrate = bitrateStr?.toIntOrNull()
         val filesize = file.length()
-        val orientation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-        } else {
-            null
-        }
+        val orientation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
         val ori = orientation?.toIntOrNull()
         if (ori != null && isLandscapeImage(ori)) {
             val tmp = width

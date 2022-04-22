@@ -37,7 +37,9 @@ extension Compress on IVideoCompress {
   Future<T?> _invoke<T>(String name, [Map<String, dynamic>? params]) async {
     T? result;
     try {
-      result = params != null ? await channel.invokeMethod(name, params) : await channel.invokeMethod(name);
+      result = params != null
+          ? await channel.invokeMethod(name, params)
+          : await channel.invokeMethod(name);
     } on PlatformException catch (e) {
       debugPrint('''Error from VideoCompress: 
       Method: $name
@@ -180,5 +182,43 @@ extension Compress on IVideoCompress {
     return await _invoke<void>('setLogLevel', {
       'logLevel': logLevel,
     });
+  }
+
+  Future<MediaInfo?> compressAudio(
+    String path, {
+    bool deleteOrigin = false,
+    int? startTime,
+    int? duration,
+    int? bitrate,
+  }) async {
+    if (isCompressing) {
+      throw StateError('''VideoCompress Error: 
+      Method: compressAudio
+      Already have a compression process, you need to wait for the process to finish or stop it''');
+    }
+
+    if (compressProgress$.notSubscribed) {
+      debugPrint('''VideoCompress: You can try to subscribe to the 
+      compressProgress\$ stream to know the compressing state.''');
+    }
+    // ignore: invalid_use_of_protected_member
+    setProcessingStatus(true);
+    final jsonStr = await _invoke<String>('compressAudio', {
+      'path': path,
+      'deleteOrigin': deleteOrigin,
+      'startTime': startTime,
+      'duration': duration,
+      "bitrate": bitrate,
+    });
+
+    // ignore: invalid_use_of_protected_member
+    setProcessingStatus(false);
+
+    if (jsonStr != null) {
+      final jsonMap = json.decode(jsonStr);
+      return MediaInfo.fromJson(jsonMap);
+    } else {
+      return null;
+    }
   }
 }
