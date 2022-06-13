@@ -470,7 +470,7 @@ private fun MediaSource.getAudioTrackIndex(): Int {
 
 private fun MediaSource.getTrackFirstIndex(type: String): Int {
     val count = trackCount
-    for (i in 0..count) {
+    for (i in 0 until count) {
         val trackFormat = getTrackFormat(i)
         val mime = trackFormat.getString(MediaFormat.KEY_MIME) ?: continue
         if (mime.startsWith(type)) {
